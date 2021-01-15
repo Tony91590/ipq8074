@@ -19,7 +19,6 @@ PKG_HASH:=525965971272270995364a0eb01f35180d793182e63dd0b0c3eb0292291644a4
 
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE libtomcrypt/LICENSE libtommath/LICENSE
-PKG_CPE_ID:=cpe:/a:matt_johnston:dropbear_ssh_server
 
 PKG_BUILD_PARALLEL:=1
 PKG_USE_MIPS16:=0
@@ -34,7 +33,7 @@ PKG_CONFIG_DEPENDS:= \
 include $(INCLUDE_DIR)/package.mk
 
 ifneq ($(DUMP),1)
-  STAMP_CONFIGURED:=$(strip $(STAMP_CONFIGURED))_$(shell echo $(CONFIG_TARGET_INIT_PATH) | mkhash md5)
+  STAMP_CONFIGURED:=$(strip $(STAMP_CONFIGURED))_$(shell $(SH_FUNC) echo $(CONFIG_TARGET_INIT_PATH) | md5s)
 endif
 
 define Package/dropbear/Default
@@ -79,7 +78,7 @@ CONFIGURE_ARGS += \
 	--enable-openpty \
 	--enable-syslog \
 	--disable-lastlog \
-	--disable-utmpx \
+	$(if $(CONFIG_SHADOW_PASSWORDS),,--disable-shadow) \
 	$(if $(CONFIG_DROPBEAR_UTMP),,--disable-utmp) \
 	--disable-wtmp \
 	--disable-wtmpx \
@@ -144,6 +143,8 @@ define Package/dropbear/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/dropbearmulti $(1)/usr/sbin/dropbear
 	$(INSTALL_DIR) $(1)/usr/bin
+	$(LN) ../sbin/dropbear $(1)/usr/bin/scp
+	$(LN) ../sbin/dropbear $(1)/usr/bin/ssh
 	$(if $(CONFIG_DROPBEAR_DBCLIENT),$(LN) ../sbin/dropbear $(1)/usr/bin/dbclient,)
 	$(LN) ../sbin/dropbear $(1)/usr/bin/dropbearkey
 	$(INSTALL_DIR) $(1)/etc/config

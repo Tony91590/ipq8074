@@ -7,7 +7,7 @@ boot() {
 	rm -f /sysupgrade.tgz
 	local hk_board=$(grep -w  "IPQ807x" /proc/device-tree/model | awk -F: '{print $1}')
 
-        [ -n "$hk_board" ] && {
+	[ -n "$hk_board" ] && {
 		local mount_check=$(ls /lib/firmware/IPQ8074/WIFI_FW/ | grep "bdwlan.bin")
 		if [ -z "$mount_check" ];then
 			. /etc/init.d/wifi_fw_mount
@@ -22,5 +22,8 @@ boot() {
 
 	# set leds to normal state
 	. /etc/diag.sh
+
+	# Clean up file cache
+	echo 3 > /proc/sys/vm/drop_caches
 	set_state done
 }

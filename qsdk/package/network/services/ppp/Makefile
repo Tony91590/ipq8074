@@ -158,7 +158,7 @@ $(call Build/Configure/Default,, \
 	UNAME_M="$(ARCH)" \
 )
 	mkdir -p $(PKG_BUILD_DIR)/pppd/plugins/pppoatm/linux
-	cp \
+	$(CP) \
 		$(LINUX_DIR)/include/linux/compiler.h \
 		$(LINUX_DIR)/include/$(LINUX_UAPI_DIR)linux/atm*.h \
 		$(PKG_BUILD_DIR)/pppd/plugins/pppoatm/linux/

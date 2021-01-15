@@ -114,7 +114,7 @@ append_ports()
 
 validate_section_dropbear()
 {
-	uci_load_validate dropbear dropbear "$1" "$2" \
+	uci_validate_section dropbear dropbear "${1}" \
 		'PasswordAuth:bool:1' \
 		'enable:bool:1' \
 		'Interface:string' \
@@ -134,9 +134,12 @@ validate_section_dropbear()
 
 dropbear_instance()
 {
-	local ipaddrs
+	local PasswordAuth enable Interface GatewayPorts \
+		RootPasswordAuth RootLogin rsakeyfile \
+		BannerFile Port SSHKeepAlive IdleTimeout \
+		MaxAuthTries RecvWindowSize mdns ipaddrs
 
-	[ "$2" = 0 ] || {
+	validate_section_dropbear "${1}" || {
 		echo "validation failed"
 		return 1
 	}
@@ -182,9 +185,7 @@ dropbear_instance()
 load_interfaces()
 {
 	config_get interface "$1" Interface
-	config_get enable "$1" enable 1
-
-	[ "${enable}" = "1" ] && interfaces=" ${interface} ${interfaces}"
+	interfaces=" ${interface} ${interfaces}"
 }
 
 boot()
@@ -201,13 +202,14 @@ start_service()
 	. /lib/functions/network.sh
 
 	config_load "${NAME}"
-	config_foreach validate_section_dropbear dropbear dropbear_instance
+	config_foreach dropbear_instance dropbear
 }
 
 service_triggers()
 {
 	local interfaces
 
+	procd_open_trigger
 	procd_add_config_trigger "config.change" "dropbear" /etc/init.d/dropbear reload
 
 	config_load "${NAME}"
@@ -218,6 +220,7 @@ service_triggers()
 			procd_add_interface_trigger "interface.*" $n /etc/init.d/dropbear reload
 		done
 	}
+	procd_close_trigger
 
 	procd_add_validation validate_section_dropbear
 }
