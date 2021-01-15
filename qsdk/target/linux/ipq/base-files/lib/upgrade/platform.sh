@@ -240,7 +240,7 @@ flash_section() {
 		wififw_ubi_v${version}-*) switch_layout linux; do_flash_ubi ${sec} "0:WIFIFW";;
 		btfw-*) switch_layout linux; do_flash_failsafe_partition ${sec} "0:BTFW";;
 		fs*) switch_layout linux; do_flash_failsafe_partition ${sec} "rootfs";;
-		ubi*) switch_layout linux; image_is_nand || return && do_flash_ubi ${sec} "rootfs";;
+		ubi*) switch_layout linux; image_is_nand || return && do_flash_ubi ${sec} "rootfs_1";;
 		sbl1*) switch_layout boot; do_flash_partition ${sec} "0:SBL1";;
 		sbl2*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:SBL2";;
 		sbl3*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:SBL3";;
