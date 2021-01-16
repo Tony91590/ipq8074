@@ -1,0 +1,10 @@
+--- a/ether-wake.c
++++ b/ether-wake.c
+@@ -88,7 +88,6 @@ static char usage_msg[] =
+ #else
+ #include <asm/types.h>
+ #include <linux/if_packet.h>
+-#include <linux/if_ether.h>
+ #endif
+ #include <netdb.h>
+ #include <netinet/ether.h>
