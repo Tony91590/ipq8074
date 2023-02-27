@@ -182,27 +182,28 @@
 	};
 
 	led_pins: led_pins {
-		led_blue {
+		net_blue {
 			pins = "gpio42";
 			function = "gpio";
 			drive-strength = <8>;
 			bias-pull-down;
 		};
 
-		led_yellow {
+		net_yellow {
 			pins = "gpio43";
 			function = "gpio";
 			drive-strength = <8>;
 			bias-pull-down;
 		};
-		net_blue {
+
+		led_blue {
 			pins = "gpio21";
 			function = "gpio";
 			drive-strength = <8>;
 			bias-pull-down;
 		};
 
-		net_yellow {
+		led_yellow {
 			pins = "gpio22";
 			function = "gpio";
 			drive-strength = <8>;
@@ -215,11 +216,9 @@
 			drive-strength = <8>;
 			bias-pull-down;
 		};
-
 	};
 
 	button_pins: button_pins {
-
 		wps_button {
 			pins = "gpio34";
 			function = "gpio";
@@ -251,7 +250,6 @@
 			bias-pull-down;
 		};
 	};
-
 };
 
 &soc {
@@ -656,29 +654,34 @@
 		pinctrl-0 = <&led_pins>;
 		pinctrl-names = "default";
 
-		led_sys_blue {
-			label = "led_blue";
-			gpio = <&tlmm 42 GPIO_ACTIVE_HIGH>;
-		};
-
-		led_sys_yellow {
-			label = "led_yellow";
-			gpio = <&tlmm 43 GPIO_ACTIVE_HIGH>;
-		};
-
 		led_net_blue {
 			label = "net_blue";
-			gpio = <&tlmm 21 GPIO_ACTIVE_HIGH>;
+			gpio = <&tlmm 42 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
 		};
 
 		led_net_yellow {
 			label = "net_yellow";
+			gpio = <&tlmm 43 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_sys_blue {
+			label = "led_blue";
+			gpio = <&tlmm 21 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_sys_yellow {
+			label = "led_yellow";
 			gpio = <&tlmm 22 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
 		};
 
 		led_ant {
 			label = "led_ant";
 			gpio = <&tlmm 51 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
 		};
 	};
 };
@@ -780,19 +783,11 @@
 	status = "disabled";
 };
 
-&spmi_bus {
-	status = "disabled";
-};
-
 &glink_rpm {
 	status = "disabled";
 };
 
 &apc_apm {
-	status = "disabled";
-};
-
-&apc_cpr {
 	status = "disabled";
 };
 

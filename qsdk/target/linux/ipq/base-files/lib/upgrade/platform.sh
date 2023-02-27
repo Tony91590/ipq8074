@@ -11,7 +11,7 @@ RAMFS_COPY_DATA=/lib/ipq806x.sh
 RAMFS_COPY_BIN="/usr/bin/dumpimage /bin/mktemp /usr/sbin/mkfs.ubifs
 	/usr/sbin/ubiattach /usr/sbin/ubidetach /usr/sbin/ubiformat /usr/sbin/ubimkvol
 	/usr/sbin/ubiupdatevol /usr/bin/basename /bin/rm /usr/bin/find
-	/usr/sbin/mkfs.ext4"
+	/usr/sbin/mkfs.ext4 /usr/sbin/losetup /usr/bin/yes /usr/bin/strings /usr/sbin/partprobe"
 
 get_full_section_name() {
 	local img=$1
@@ -225,6 +225,12 @@ flash_section() {
 		version=1
 	fi
 
+	# Look for pci mhi devices
+	for device in $(cat /sys/bus/pci/devices/*/device 2> /dev/null)
+	do
+		[ "${device}" = "0x1104" ] && qcn9000="true"
+	done
+
 	case "${sec}" in
 		hlos*) switch_layout linux; image_is_nand && return || do_flash_failsafe_partition ${sec} "0:HLOS";;
 		rootfs*) switch_layout linux; image_is_nand && return || do_flash_failsafe_partition ${sec} "rootfs";;
@@ -232,15 +238,16 @@ flash_section() {
 		wififw_ubi-*) switch_layout linux; do_flash_ubi ${sec} "0:WIFIFW";;
 		wififw_v${version}-*) switch_layout linux; do_flash_failsafe_partition ${sec} "0:WIFIFW";;
 		wififw_ubi_v${version}-*) switch_layout linux; do_flash_ubi ${sec} "0:WIFIFW";;
+		btfw-*) switch_layout linux; do_flash_failsafe_partition ${sec} "0:BTFW";;
 		fs*) switch_layout linux; do_flash_failsafe_partition ${sec} "rootfs";;
-		ubi*) switch_layout linux; image_is_nand || return && do_flash_ubi ${sec} "rootfs";;
+		ubi*) switch_layout linux; image_is_nand || return && do_flash_ubi ${sec} "rootfs_1";;
 		sbl1*) switch_layout boot; do_flash_partition ${sec} "0:SBL1";;
 		sbl2*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:SBL2";;
 		sbl3*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:SBL3";;
 		dtb-$(to_upper $board)*) switch_layout boot; do_flash_partition ${sec} "0:DTB";;
 		u-boot*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:APPSBL";;
 		lkboot*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:APPSBL";;
-		ddr-$(to_upper $board)*) switch_layout boot; do_flash_ddr ${sec};;
+		ddr-$(to_upper $board)_*) switch_layout boot; do_flash_ddr ${sec};;
 		ddr-${board}-*) switch_layout boot; do_flash_failsafe_partition ${sec} "0:DDRCONFIG";;
 		ssd*) switch_layout boot; do_flash_partition ${sec} "0:SSD";;
 		tz*) switch_layout boot; do_flash_tz ${sec};;
@@ -257,6 +264,7 @@ erase_emmc_config() {
 	local mtdpart=$(cat /proc/mtd | grep rootfs)
 	local emmcblock="$(find_mmc_part "rootfs_data")"
 	if [ -z "$mtdpart" -a -e "$emmcblock" ]; then
+		dd if=/dev/zero of=$emmcblock bs=1K count=256
 		yes | mkfs.ext4 "$emmcblock"
 	fi
 }
@@ -324,9 +332,11 @@ platform_check_image() {
 	dumpimage -c $1
 	if [[ "$?" == 0 ]];then
 		return $?
+	else
+		echo "Rebooting the system"
+		reboot
+		return 1
 	fi
-	echo "Rebooting the system"
-	reboot
 }
 
 platform_version_upgrade() {
@@ -360,7 +370,7 @@ platform_do_upgrade() {
 	done
 
 	case "$board" in
-	db149 | ap148 | ap145 | ap148_1xx | db149_1xx | db149_2xx | ap145_1xx | ap160 | ap160_2xx | ap161 | ak01_1xx | ap-dk01.1-c1 | ap-dk01.1-c2 | ap-dk04.1-c1 | ap-dk04.1-c2 | ap-dk04.1-c3 | ap-dk04.1-c4 | ap-dk04.1-c5 | ap-dk04.1-c6 | ap-dk05.1-c1 |  ap-dk06.1-c1 | ap-dk07.1-c1 | ap-dk07.1-c2 | ap-dk07.1-c3 | ap-dk07.1-c4 | ap-hk01-c1 | ap-hk01-c2 | ap-hk01-c3 | ap-hk01-c4 | ap-hk02 | ap-hk05 | ap-hk06 | ap-hk07 | ap-hk08 | ap-hk09 | ap-hk10 | ap-ac01 | ap-ac02 | ap-ac03 | ap-ac04 | ap-oak02 | ap-oak03 | db-hk01 | db-hk02 | ap-cp01-c1 | ap-cp02-c1 | ap-cp03-c1)
+	db149 | ap148 | ap145 | ap148_1xx | db149_1xx | db149_2xx | ap145_1xx | ap160 | ap160_2xx | ap161 | ak01_1xx | ap-dk01.1-c1 | ap-dk01.1-c2 | ap-dk04.1-c1 | ap-dk04.1-c2 | ap-dk04.1-c3 | ap-dk04.1-c4 | ap-dk04.1-c5 | ap-dk04.1-c6 | ap-dk05.1-c1 |  ap-dk06.1-c1 | ap-dk07.1-c1 | ap-dk07.1-c2 | ap-dk07.1-c3 | ap-dk07.1-c4 | ap-hk01-c1 | ap-hk01-c2 | ap-hk01-c3 | ap-hk01-c4 | ap-hk01-c5 | ap-hk01-c6 | ap-hk02 | ap-hk06 | ap-hk07 | ap-hk08 | ap-hk09 | ap-hk10-c1 | ap-hk10-c2 | ap-hk11-c1 | ap-hk12 | ap-hk14 | ap-ac01 | ap-ac02 | ap-ac03 | ap-ac04 | ap-oak02 | ap-oak03 | db-hk01 | db-hk02 | ap-cp01-c1 | ap-cp01-c2 | ap-cp01-c3 | ap-cp01-c4 | ap-cp02-c1 | ap-cp03-c1 | db-cp01 | db-cp02 | mp-emu | ap-mp02.1 | ap-mp03.1 | ap-mp03.1-c2 | ap-mp03.1-c3 | ap-mp03.3 | ap-mp03.3-c2 | ap-mp03.6-c1 | ap-mp03.6-c2 | db-mp02.1 | db-mp03.1 | db-mp03.1-c2 | db-mp03.3 | db-mp03.3-c2)
 		for sec in $(print_sections $1); do
 			flash_section ${sec}
 		done
@@ -380,9 +390,31 @@ platform_do_upgrade() {
 	return 1;
 }
 
+get_magic_long_at() {
+        dd if="$1" skip=$(( 65536 / 4 * $2 )) bs=4 count=1 2>/dev/null | hexdump -v -n 4 -e '1/1 "%02x"'
+}
+
+# find rootfs_data start magic
+platform_get_offset() {
+        offsetcount=0
+        magiclong="x"
+
+        while magiclong=$( get_magic_long_at "$1" "$offsetcount" ) && [ -n "$magiclong" ]; do
+                case "$magiclong" in
+                        "deadc0de"|"19852003")
+                                echo $(( $offsetcount * 65536 ))
+                                return
+                        ;;
+                esac
+                offsetcount=$(( $offsetcount + 1 ))
+        done
+}
+
 platform_copy_config() {
 	local nand_part="$(find_mtd_part "ubi_rootfs")"
 	local emmcblock="$(find_mmc_part "rootfs_data")"
+	[ -e "$emmcblock" ] || emmcblock="$(find_mmc_part "rootfs")"
+	mkdir -p /tmp/overlay
 
 	if [ -e "$nand_part" ]; then
 		local mtdname=rootfs
@@ -399,7 +431,28 @@ platform_copy_config() {
 		sync
 		umount /tmp/overlay
 	elif [ -e "$emmcblock" ]; then
-		mount -t ext4 "$emmcblock" /tmp/overlay
+		if ! strings /tmp/hlos-*|grep 'OpenWrt' > /dev/null 2>&1; then
+			mount -t ext4 "$emmcblock" /tmp/overlay
+			cp /tmp/sysupgrade.tgz /tmp/overlay/
+			sync
+			umount /tmp/overlay
+			return;
+		fi
+		emmcblock="$(find_mmc_part rootfs)"
+		losetup --detach-all
+		local data_offset_part="$(platform_get_offset $emmcblock)"
+		local data_offset_img="$(platform_get_offset $(ls /tmp/rootfs-*))"
+		[ "$data_offset_part" != "$data_offset_img" ] && {
+			emmcblock="$(find_mmc_part "rootfs_1")"
+			data_offset_part="$(platform_get_offset $emmcblock)"
+		}
+		local loopdev="$(losetup -f)"
+		losetup -o $data_offset_part $loopdev $emmcblock || {
+			echo "Failed to mount looped rootfs_data."
+			reboot
+		}
+		echo y | mkfs.ext4 -F -L rootfs_data $loopdev
+		mount -t ext4 "$loopdev" /tmp/overlay
 		cp /tmp/sysupgrade.tgz /tmp/overlay/
 		sync
 		umount /tmp/overlay

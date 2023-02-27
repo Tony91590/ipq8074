@@ -136,61 +136,61 @@ proto_map_setup() {
 
 	json_add_array firewall
 	if [ "$mode" != br ]; then
-	  if [ -z "$(eval "echo \$RULE_${k}_PORTSETS")" ]; then
-	    json_add_object ""
-	      json_add_string type nat
-	      json_add_string target SNAT
-	      json_add_string family inet
-	      json_add_string snat_ip $(eval "echo \$RULE_${k}_IPV4ADDR")
-	    json_close_object
-	  else
-	    network_get_device ifname "lan"
-	    for portset in $(eval "echo \$RULE_${k}_PORTSETS"); do
-              for proto in icmp tcp udp; do
-	        json_add_object ""
-	          json_add_string type nat
-	          json_add_string target SNAT
-	          json_add_string family inet
-	          json_add_string proto "$proto"
-                  json_add_boolean connlimit_ports 1
-                  json_add_string snat_ip $(eval "echo \$RULE_${k}_IPV4ADDR")
-                  json_add_string snat_port "$portset"
-	        json_close_object
-              done
-	    done
-	    if [ "$type" = "map-e" ]; then
-		    for portset in $(eval "echo \$RULE_${k}_PORTSETS"); do
-			    json_add_object ""
-			    json_add_string type rule
-			    json_add_string family inet
-			    json_add_string set_mark 0x100
-			    json_add_string dest_ip $(eval "echo \$RULE_${k}_IPV4ADDR")
-			    json_add_string proto tcpudp
-			    json_add_string src "lan"
-			    json_add_string device "$ifname"
-			    json_add_string dest_port "$portset"
-			    json_add_string target MARK
-			    json_close_object
-		    done
-		    echo $(eval "echo \$RULE_${k}_PSID") > /sys/module/nf_nat_ftp/parameters/psid
-		    echo $(eval "echo \$RULE_${k}_PSIDLEN") > /sys/module/nf_nat_ftp/parameters/psid_len
-		    echo $(eval "echo \$RULE_${k}_OFFSET") > /sys/module/nf_nat_ftp/parameters/offset
-		    ip rule add to $(eval "echo \$RULE_${k}_IPV4ADDR") iif $ifname fwmark 0x100/0x100 table local
-		    ip rule add to $(eval "echo \$RULE_${k}_IPV4ADDR") iif $ifname table main
-	    fi
-	  fi
+		if [ -z "$(eval "echo \$RULE_${k}_PORTSETS")" ]; then
+			json_add_object ""
+			json_add_string type nat
+			json_add_string target SNAT
+			json_add_string family inet
+			json_add_string snat_ip $(eval "echo \$RULE_${k}_IPV4ADDR")
+			json_close_object
+		else
+			network_get_device ifname "lan"
+			for portset in $(eval "echo \$RULE_${k}_PORTSETS"); do
+				for proto in icmp tcp udp gre; do
+					json_add_object ""
+					json_add_string type nat
+					json_add_string target SNAT
+					json_add_string family inet
+					json_add_string proto "$proto"
+					json_add_boolean connlimit_ports 1
+					json_add_string snat_ip $(eval "echo \$RULE_${k}_IPV4ADDR")
+					json_add_string snat_port "$portset"
+					json_close_object
+				done
+			done
+			if [ "$type" = "map-e" ]; then
+				for portset in $(eval "echo \$RULE_${k}_PORTSETS"); do
+					json_add_object ""
+					json_add_string type rule
+					json_add_string family inet
+					json_add_string set_mark 0x100
+					json_add_string dest_ip $(eval "echo \$RULE_${k}_IPV4ADDR")
+					json_add_string proto tcpudp
+					json_add_string src "lan"
+					json_add_string device "$ifname"
+					json_add_string dest_port "$portset"
+					json_add_string target MARK
+					json_close_object
+				done
+				echo $(eval "echo \$RULE_${k}_PSID") > /sys/module/nf_nat_ftp/parameters/psid
+				echo $(eval "echo \$RULE_${k}_PSIDLEN") > /sys/module/nf_nat_ftp/parameters/psid_len
+				echo $(eval "echo \$RULE_${k}_OFFSET") > /sys/module/nf_nat_ftp/parameters/offset
+				ip rule add to $(eval "echo \$RULE_${k}_IPV4ADDR") iif $ifname fwmark 0x100/0x100 table local
+				ip rule add to $(eval "echo \$RULE_${k}_IPV4ADDR") iif $ifname table main
+			fi
+		fi
 	fi
 	if [ "$type" = "map-t" ]; then
-	  	json_add_object ""
-	  		json_add_string type rule
-	  		json_add_string family inet6
-	  		json_add_string proto all
-	  		json_add_string direction in
-			json_add_string dest "$zone"
-			json_add_string src "$zone"
-	  		json_add_string src_ip $(eval "echo \$RULE_${k}_IPV6ADDR")
-	  		json_add_string target ACCEPT
-	  	json_close_object
+		json_add_object ""
+		json_add_string type rule
+		json_add_string family inet6
+		json_add_string proto all
+		json_add_string direction in
+		json_add_string dest "$zone"
+		json_add_string src "$zone"
+		json_add_string src_ip $(eval "echo \$RULE_${k}_IPV6ADDR")
+		json_add_string target ACCEPT
+		json_close_object
 		proto_add_ipv6_route $(eval "echo \$RULE_${k}_IPV6ADDR") 128
 	fi
 
@@ -210,7 +210,7 @@ proto_map_setup() {
 
 proto_map_teardown() {
 	local cfg="$1"
-	ifdown "${cfg}"
+
 	echo 0 > /sys/module/nf_nat_ftp/parameters/psid
 	echo 0 > /sys/module/nf_nat_ftp/parameters/psid_len
 	echo 0 > /sys/module/nf_nat_ftp/parameters/offset
@@ -243,5 +243,5 @@ proto_map_init_config() {
 }
 
 [ -n "$INCLUDE_ONLY" ] || {
-        add_protocol map
+	add_protocol map
 }
