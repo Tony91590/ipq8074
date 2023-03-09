@@ -39,7 +39,9 @@ define autoreconf
 				[ -e $(p)/config.rpath ] || \
 						ln -s $(SCRIPT_DIR)/config.rpath $(p)/config.rpath; \
 				touch NEWS AUTHORS COPYING ABOUT-NLS ChangeLog; \
-				$(AM_TOOL_PATHS) $(STAGING_DIR_HOST)/bin/autoreconf -v -f -i -s \
+				$(AM_TOOL_PATHS) \
+					LIBTOOLIZE='$(STAGING_DIR_HOST)/bin/libtoolize --install' \
+					$(STAGING_DIR_HOST)/bin/autoreconf -v -f -i -s \
 					$(if $(word 2,$(3)),--no-recursive) \
 					-B $(STAGING_DIR_HOST)/share/aclocal \
 					$(patsubst %,-I %,$(5)) \
@@ -75,7 +77,7 @@ define autoreconf_target
   $(strip $(call autoreconf, \
     $(PKG_BUILD_DIR), $(PKG_REMOVE_FILES), \
     $(PKG_AUTOMAKE_PATHS), $(PKG_LIBTOOL_PATHS), \
-    $(STAGING_DIR)/host/share/aclocal $(STAGING_DIR)/usr/share/aclocal $(PKG_MACRO_PATHS)))
+    $(STAGING_DIR)/host/share/aclocal $(STAGING_DIR_HOSTPKG)/share/aclocal $(STAGING_DIR)/usr/share/aclocal $(PKG_MACRO_PATHS)))
 endef
 
 define patch_libtool_target
@@ -85,11 +87,11 @@ endef
 
 define gettext_version_target
 	(cd $(PKG_BUILD_DIR) && \
-		GETTEXT_VERSION=$(shell $(STAGING_DIR_HOST)/bin/gettext -V | $(STAGING_DIR_HOST)/bin/sed -ne '1s/.* //p') && \
+		GETTEXT_VERSION=$(shell $(STAGING_DIR_HOSTPKG)/bin/gettext -V | $(STAGING_DIR_HOST)/bin/sed -ne '1s/.*\([0-9]\.[0-9]\{2\}\.[0-9]\).*/\1/p' ) && \
 		$(STAGING_DIR_HOST)/bin/sed \
 			-i $(PKG_BUILD_DIR)/configure.ac \
 			-e "s/AM_GNU_GETTEXT_VERSION(.*)/AM_GNU_GETTEXT_VERSION(\[$$$$GETTEXT_VERSION\])/g" && \
-		$(STAGING_DIR_HOST)/bin/autopoint --force \
+		$(STAGING_DIR_HOSTPKG)/bin/autopoint --force \
 	);
 endef
 
@@ -105,14 +107,14 @@ ifneq ($(filter patch-libtool,$(PKG_FIXUP)),)
 endif
 
 ifneq ($(filter libtool,$(PKG_FIXUP)),)
-  PKG_BUILD_DEPENDS += libtool libintl libiconv
+  PKG_BUILD_DEPENDS += libtool gettext libiconv
  ifeq ($(filter no-autoreconf,$(PKG_FIXUP)),)
   Hooks/Configure/Pre += autoreconf_target
  endif
 endif
 
 ifneq ($(filter libtool-ucxx,$(PKG_FIXUP)),)
-  PKG_BUILD_DEPENDS += libtool libintl libiconv
+  PKG_BUILD_DEPENDS += libtool gettext libiconv
  ifeq ($(filter no-autoreconf,$(PKG_FIXUP)),)
   Hooks/Configure/Pre += autoreconf_target
  endif

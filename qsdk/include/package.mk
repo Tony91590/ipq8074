@@ -7,27 +7,25 @@
 
 __package_mk:=1
 
-all: $(if $(DUMP),dumpinfo,compile)
+all: $(if $(DUMP),dumpinfo,$(if $(CHECK),check,compile))
 
 include $(INCLUDE_DIR)/download.mk
 
-PKG_BUILD_DIR ?= $(BUILD_DIR)/$(PKG_NAME)$(if $(PKG_VERSION),-$(PKG_VERSION))
+PKG_BUILD_DIR ?= $(BUILD_DIR)/$(if $(BUILD_VARIANT),$(PKG_NAME)-$(BUILD_VARIANT)/)$(PKG_NAME)$(if $(PKG_VERSION),-$(PKG_VERSION))
 PKG_INSTALL_DIR ?= $(PKG_BUILD_DIR)/ipkg-install
-PKG_MD5SUM ?= unknown
 PKG_BUILD_PARALLEL ?=
 PKG_USE_MIPS16 ?= 1
+PKG_IREMAP ?= 1
 
-ifneq ($(CONFIG_PKG_BUILD_USE_JOBSERVER),)
-  MAKE_J:=$(if $(MAKE_JOBSERVER),$(MAKE_JOBSERVER) -j)
-else
-  MAKE_J:=-j$(CONFIG_PKG_BUILD_JOBS)
-endif
+MAKE_J:=$(if $(MAKE_JOBSERVER),$(MAKE_JOBSERVER) $(if $(filter 3.% 4.0 4.1,$(MAKE_VERSION)),-j))
+
+FindRecipeExt=$(wildcard $(strip $(shell find $(TOPDIR)/qsdk-package -name $(basename $(notdir $(CURDIR))) 2>/dev/null))/$(PKG_NAME).mk)
+-include $(FindRecipeExt)
 
 ifeq ($(strip $(PKG_BUILD_PARALLEL)),0)
 PKG_JOBS?=-j1
 else
-PKG_JOBS?=$(if $(PKG_BUILD_PARALLEL)$(CONFIG_PKG_DEFAULT_PARALLEL),\
-	$(if $(CONFIG_PKG_BUILD_PARALLEL),$(MAKE_J),-j1),-j1)
+PKG_JOBS?=$(if $(PKG_BUILD_PARALLEL),$(MAKE_J),-j1)
 endif
 ifdef CONFIG_USE_MIPS16
   ifeq ($(strip $(PKG_USE_MIPS16)),1)
@@ -35,47 +33,20 @@ ifdef CONFIG_USE_MIPS16
     TARGET_CFLAGS += -mips16 -minterlink-mips16
   endif
 endif
+ifeq ($(strip $(PKG_IREMAP)),1)
+  IREMAP_CFLAGS = $(call iremap,$(PKG_BUILD_DIR),$(notdir $(PKG_BUILD_DIR)))
+  TARGET_CFLAGS += $(IREMAP_CFLAGS)
+endif
 
 include $(INCLUDE_DIR)/hardening.mk
 include $(INCLUDE_DIR)/prereq.mk
-include $(INCLUDE_DIR)/host.mk
 include $(INCLUDE_DIR)/unpack.mk
 include $(INCLUDE_DIR)/depends.mk
 
-find_library_dependencies = $(wildcard $(patsubst %,$(STAGING_DIR)/pkginfo/%.version, \
-	$(filter-out $(BUILD_PACKAGES),$(foreach dep, \
-		$(filter-out @%, $(patsubst +%,%,$(1))), \
-		$(if $(findstring :,$(dep)), \
-			$(word 2,$(subst :,$(space),$(dep))), \
-			$(dep) \
-		) \
-	))))
-
-STAMP_NO_AUTOREBUILD=$(wildcard $(PKG_BUILD_DIR)/.no_autorebuild)
-PREV_STAMP_PREPARED:=$(if $(STAMP_NO_AUTOREBUILD),$(wildcard $(PKG_BUILD_DIR)/.prepared*))
-ifneq ($(PREV_STAMP_PREPARED),)
-  STAMP_PREPARED:=$(PREV_STAMP_PREPARED)
-  CONFIG_AUTOREBUILD:=
-else
-  STAMP_PREPARED=$(PKG_BUILD_DIR)/.prepared$(if $(QUILT)$(DUMP),,_$(shell $(call find_md5,${CURDIR} $(PKG_FILE_DEPENDS),))$(call confvar,$(PKG_PREPARED_DEPENDS)))
+ifneq ($(wildcard $(TOPDIR)/git-src/$(PKG_NAME)/.git),)
+  USE_GIT_SRC_CHECKOUT:=1
+  QUILT:=1
 endif
-STAMP_CONFIGURED=$(PKG_BUILD_DIR)/.configured$(if $(DUMP),,_$(call confvar,$(PKG_CONFIG_DEPENDS)))
-STAMP_CONFIGURED_WILDCARD=$(patsubst %_$(call confvar,$(PKG_CONFIG_DEPENDS)),%_*,$(STAMP_CONFIGURED))
-STAMP_BUILT:=$(PKG_BUILD_DIR)/.built
-STAMP_INSTALLED:=$(STAGING_DIR)/stamp/.$(PKG_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),)_installed
-
-STAGING_FILES_LIST:=$(PKG_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),).list
-
-define CleanStaging
-	rm -f $(STAMP_INSTALLED)
-	@-(\
-		cd "$(STAGING_DIR)"; \
-		if [ -f packages/$(STAGING_FILES_LIST) ]; then \
-			cat packages/$(STAGING_FILES_LIST) | xargs -r rm -f 2>/dev/null; \
-		fi; \
-	)
-endef
-
 ifneq ($(if $(CONFIG_SRC_TREE_OVERRIDE),$(wildcard ./git-src)),)
   USE_GIT_TREE:=1
   QUILT:=1
@@ -87,16 +58,67 @@ ifneq ($(wildcard $(PKG_BUILD_DIR)/.source_dir),)
   QUILT:=1
 endif
 
+include $(INCLUDE_DIR)/quilt.mk
+
+find_library_dependencies = \
+	$(wildcard $(patsubst %,$(STAGING_DIR)/pkginfo/%.version, \
+		$(sort $(foreach dep4, \
+			$(sort $(foreach dep3, \
+				$(sort $(foreach dep2, \
+					$(sort $(foreach dep1, \
+						$(sort $(foreach dep0, \
+							$(Package/$(1)/depends), \
+							$(Package/$(dep0)/depends) $(dep0) \
+						)), \
+						$(Package/$(dep1)/depends) $(dep1) \
+					)), \
+					$(Package/$(dep2)/depends) $(dep2) \
+				)), \
+				$(Package/$(dep3)/depends) $(dep3) \
+			)), \
+			$(Package/$(dep4)/depends) $(dep4) \
+		)), \
+	))
+
+
 PKG_DIR_NAME:=$(lastword $(subst /,$(space),$(CURDIR)))
+STAMP_NO_AUTOREBUILD=$(wildcard $(PKG_BUILD_DIR)/.no_autorebuild)
+PREV_STAMP_PREPARED:=$(if $(STAMP_NO_AUTOREBUILD),$(wildcard $(PKG_BUILD_DIR)/.prepared*))
+ifneq ($(PREV_STAMP_PREPARED),)
+  STAMP_PREPARED:=$(PREV_STAMP_PREPARED)
+  CONFIG_AUTOREBUILD:=
+else
+  STAMP_PREPARED=$(PKG_BUILD_DIR)/.prepared$(if $(QUILT)$(DUMP),,_$(shell $(call find_md5,${CURDIR} $(PKG_FILE_DEPENDS),))_$(call confvar,CONFIG_AUTOREMOVE $(PKG_PREPARED_DEPENDS)))
+endif
+STAMP_CONFIGURED=$(PKG_BUILD_DIR)/.configured$(if $(DUMP),,_$(call confvar,$(PKG_CONFIG_DEPENDS)))
+STAMP_CONFIGURED_WILDCARD=$(PKG_BUILD_DIR)/.configured_*
+STAMP_BUILT:=$(PKG_BUILD_DIR)/.built
+STAMP_INSTALLED:=$(STAGING_DIR)/stamp/.$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),)_installed
+
+STAGING_FILES_LIST:=$(PKG_DIR_NAME)$(if $(BUILD_VARIANT),.$(BUILD_VARIANT),).list
+
+define CleanStaging
+	rm -f $(STAMP_INSTALLED)
+	@-(\
+		if [ -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) ]; then \
+			$(SCRIPT_DIR)/clean-package.sh \
+				"$(STAGING_DIR)/packages/$(STAGING_FILES_LIST)" \
+				"$(STAGING_DIR)"; \
+		fi; \
+	)
+endef
+
+
 PKG_INSTALL_STAMP:=$(PKG_INFO_DIR)/$(PKG_DIR_NAME).$(if $(BUILD_VARIANT),$(BUILD_VARIANT),default).install
 
-include $(INCLUDE_DIR)/quilt.mk
 include $(INCLUDE_DIR)/package-defaults.mk
 include $(INCLUDE_DIR)/package-dumpinfo.mk
 include $(INCLUDE_DIR)/package-ipkg.mk
 include $(INCLUDE_DIR)/package-ipkg-prebuilt.mk
 include $(INCLUDE_DIR)/package-bin.mk
 include $(INCLUDE_DIR)/autotools.mk
+
+_pkg_target:=$(if $(QUILT),,.)
 
 override MAKEFLAGS=
 CONFIG_SITE:=$(INCLUDE_DIR)/site/$(ARCH)
@@ -115,37 +137,28 @@ ifeq ($(DUMP)$(filter prereq clean refresh update,$(MAKECMDGOALS)),)
   endif
 endif
 
-ifeq ($(CONFIG_$(PKG_NAME)_USE_CUSTOM_SOURCE_DIR),y)
-# disable load stage
-PKG_SOURCE_URL:=
-# add hook to install a link to customer source path of dedicated package
-Hooks/Prepare/Pre += prepare_custom_source_directory
-ifeq ($(filter autoreconf,$(Hooks/Configure/Pre)),)
-  Hooks/Configure/Pre += autoreconf_target
+ifdef USE_GIT_SRC_CHECKOUT
+  define Build/Prepare/Default
+	mkdir -p $(PKG_BUILD_DIR)
+	ln -s $(TOPDIR)/git-src/$(PKG_NAME)/.git $(PKG_BUILD_DIR)/.git
+	( cd $(PKG_BUILD_DIR); \
+		git checkout .; \
+		git submodule update --recursive; \
+		git submodule foreach git config --unset core.worktree; \
+		git submodule foreach git checkout .; \
+	)
+  endef
 endif
-# define empty default action
-define Build/Prepare/Default
-	@:
-endef
-endif
-
-define Download/default
-  FILE:=$(PKG_SOURCE)
-  URL:=$(PKG_SOURCE_URL)
-  BRANCH:=$(PKG_SOURCE_BRANCH)
-  SUBDIR:=$(PKG_SOURCE_SUBDIR)
-  PROTO:=$(PKG_SOURCE_PROTO)
-  $(if $(PKG_SOURCE_MIRROR),MIRROR:=$(filter 1,$(PKG_MIRROR)))
-  $(if $(PKG_MIRROR_MD5SUM),MIRROR_MD5SUM:=$(PKG_MIRROR_MD5SUM))
-  VERSION:=$(PKG_SOURCE_VERSION)
-  MD5SUM:=$(PKG_MD5SUM)
-endef
-
 ifdef USE_GIT_TREE
   define Build/Prepare/Default
 	mkdir -p $(PKG_BUILD_DIR)
 	ln -s $(CURDIR)/git-src $(PKG_BUILD_DIR)/.git
-	( cd $(PKG_BUILD_DIR); git checkout .)
+	( cd $(PKG_BUILD_DIR); \
+		git checkout .; \
+		git submodule update --recursive; \
+		git submodule foreach git config --unset core.worktree; \
+		git submodule foreach git checkout .; \
+	)
   endef
 endif
 ifdef USE_SOURCE_DIR
@@ -158,20 +171,25 @@ ifdef USE_SOURCE_DIR
 endif
 
 define Build/Exports/Default
-  $(1) : export ACLOCAL_INCLUDE=$$(foreach p,$$(wildcard $$(STAGING_DIR)/usr/share/aclocal $$(STAGING_DIR)/usr/share/aclocal-* $$(STAGING_DIR)/host/share/aclocal $$(STAGING_DIR)/host/share/aclocal-*),-I $$(p))
+  $(1) : export ACLOCAL_INCLUDE=$$(foreach p,$$(wildcard $$(STAGING_DIR)/usr/share/aclocal $$(STAGING_DIR)/usr/share/aclocal-* $$(STAGING_DIR_HOSTPKG)/share/aclocal $$(STAGING_DIR_HOSTPKG)/share/aclocal-* $$(STAGING_DIR)/host/share/aclocal $$(STAGING_DIR)/host/share/aclocal-*),-I $$(p))
   $(1) : export STAGING_PREFIX=$$(STAGING_DIR)/usr
   $(1) : export PATH=$$(TARGET_PATH_PKG)
   $(1) : export CONFIG_SITE:=$$(CONFIG_SITE)
   $(1) : export PKG_CONFIG_PATH:=$$(PKG_CONFIG_PATH)
   $(1) : export PKG_CONFIG_LIBDIR:=$$(PKG_CONFIG_PATH)
-  $(1) : export CCACHE_DIR:=$(STAGING_DIR)/ccache
+  $(if $(CONFIG_CCACHE),$(1) : export CCACHE_DIR:=$(STAGING_DIR)/ccache)
 endef
 Build/Exports=$(Build/Exports/Default)
 
-define Build/DefaultTargets
+define Build/CoreTargets
+  STAMP_PREPARED:=$$(STAMP_PREPARED)
+  STAMP_CONFIGURED:=$$(STAMP_CONFIGURED)
+
   $(if $(QUILT),$(Build/Quilt))
-  $(if $(USE_SOURCE_DIR)$(USE_GIT_TREE),,$(if $(strip $(PKG_SOURCE_URL)),$(call Download,default)))
   $(call Build/Autoclean)
+  $(call DefaultTargets)
+
+  $(DL_DIR)/$(FILE): FORCE
 
   download:
 	$(foreach hook,$(Hooks/Download),
@@ -179,25 +197,34 @@ define Build/DefaultTargets
 	)
 
   $(STAMP_PREPARED) : export PATH=$$(TARGET_PATH_PKG)
-  $(STAMP_PREPARED):
+  $(STAMP_PREPARED): $(STAMP_PREPARED_DEPENDS)
 	@-rm -rf $(PKG_BUILD_DIR)
 	@mkdir -p $(PKG_BUILD_DIR)
+	touch $$@_check
 	$(foreach hook,$(Hooks/Prepare/Pre),$(call $(hook))$(sep))
 	$(Build/Prepare)
 	$(foreach hook,$(Hooks/Prepare/Post),$(call $(hook))$(sep))
 	touch $$@
+	if [[ "$(CONFIG_FOSSID_SCAN)" == *'s'* ]]; then \
+		[[ -f "$(TOPDIR)/scripts/fossid.sh" ]] && \
+		$(TOPDIR)/scripts/fossid.sh --build_scan "$(BOARD)" "$(SUBTARGET)" \
+		"$(PKG_BUILD_DIR)" "$(BUILD_DIR)" "$(CONFIG_FOSSID_SCAN)" || \
+		echo "$(TOPDIR)/scripts/fossid.sh is missing"; \
+	fi
 
   $(call Build/Exports,$(STAMP_CONFIGURED))
-  $(STAMP_CONFIGURED): $(STAMP_PREPARED)
+  $(STAMP_CONFIGURED): $(STAMP_PREPARED) $(STAMP_CONFIGURED_DEPENDS)
+	rm -f $(STAMP_CONFIGURED_WILDCARD)
 	$(CleanStaging)
 	$(foreach hook,$(Hooks/Configure/Pre),$(call $(hook))$(sep))
 	$(Build/Configure)
 	$(foreach hook,$(Hooks/Configure/Post),$(call $(hook))$(sep))
-	rm -f $(STAMP_CONFIGURED_WILDCARD)
 	touch $$@
 
   $(call Build/Exports,$(STAMP_BUILT))
-  $(STAMP_BUILT): $(STAMP_CONFIGURED)
+  $(STAMP_BUILT): $(STAMP_CONFIGURED) $(STAMP_BUILT_DEPENDS)
+	rm -f $$@
+	touch $$@_check
 	$(foreach hook,$(Hooks/Compile/Pre),$(call $(hook))$(sep))
 	$(Build/Compile)
 	$(foreach hook,$(Hooks/Compile/Post),$(call $(hook))$(sep))
@@ -207,51 +234,61 @@ define Build/DefaultTargets
 
   $(STAMP_INSTALLED) : export PATH=$$(TARGET_PATH_PKG)
   $(STAMP_INSTALLED): $(STAMP_BUILT)
-	rm -rf $(TMP_DIR)/stage-$(PKG_NAME)
-	mkdir -p $(TMP_DIR)/stage-$(PKG_NAME)/host $(STAGING_DIR)/packages $(STAGING_DIR_HOST)/packages
+	rm -rf $(TMP_DIR)/stage-$(PKG_DIR_NAME)
+	mkdir -p $(TMP_DIR)/stage-$(PKG_DIR_NAME)/host $(STAGING_DIR)/packages $(STAGING_DIR_HOST)/packages
 	$(foreach hook,$(Hooks/InstallDev/Pre),\
-		$(call $(hook),$(TMP_DIR)/stage-$(PKG_NAME),$(TMP_DIR)/stage-$(PKG_NAME)/host)$(sep)\
+		$(call $(hook),$(TMP_DIR)/stage-$(PKG_DIR_NAME),$(TMP_DIR)/stage-$(PKG_DIR_NAME)/host)$(sep)\
 	)
-	$(call Build/InstallDev,$(TMP_DIR)/stage-$(PKG_NAME),$(TMP_DIR)/stage-$(PKG_NAME)/host)
+	$(call Build/InstallDev,$(TMP_DIR)/stage-$(PKG_DIR_NAME),$(TMP_DIR)/stage-$(PKG_DIR_NAME)/host)
 	$(foreach hook,$(Hooks/InstallDev/Post),\
-		$(call $(hook),$(TMP_DIR)/stage-$(PKG_NAME),$(TMP_DIR)/stage-$(PKG_NAME)/host)$(sep)\
+		$(call $(hook),$(TMP_DIR)/stage-$(PKG_DIR_NAME),$(TMP_DIR)/stage-$(PKG_DIR_NAME)/host)$(sep)\
 	)
 	if [ -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) ]; then \
 		$(SCRIPT_DIR)/clean-package.sh \
 			"$(STAGING_DIR)/packages/$(STAGING_FILES_LIST)" \
 			"$(STAGING_DIR)"; \
 	fi
-	if [ -d $(TMP_DIR)/stage-$(PKG_NAME) ]; then \
-		(cd $(TMP_DIR)/stage-$(PKG_NAME); find ./ > $(TMP_DIR)/stage-$(PKG_NAME).files); \
+	if [ -d $(TMP_DIR)/stage-$(PKG_DIR_NAME) ]; then \
+		(cd $(TMP_DIR)/stage-$(PKG_DIR_NAME); find ./ > $(TMP_DIR)/stage-$(PKG_DIR_NAME).files); \
 		$(call locked, \
-			mv $(TMP_DIR)/stage-$(PKG_NAME).files $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) && \
-			$(CP) $(TMP_DIR)/stage-$(PKG_NAME)/* $(STAGING_DIR)/; \
+			mv $(TMP_DIR)/stage-$(PKG_DIR_NAME).files $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) && \
+			$(CP) $(TMP_DIR)/stage-$(PKG_DIR_NAME)/* $(STAGING_DIR)/; \
 		,staging-dir); \
 	fi
-	rm -rf $(TMP_DIR)/stage-$(PKG_NAME)
+	rm -rf $(TMP_DIR)/stage-$(PKG_DIR_NAME)
 	touch $$@
 
   ifdef Build/InstallDev
-    compile: $(STAMP_INSTALLED)
+    $(_pkg_target)compile: $(STAMP_INSTALLED)
   endif
+
+  $(_pkg_target)prepare: $(STAMP_PREPARED)
+  $(_pkg_target)configure: $(STAMP_CONFIGURED)
+  $(_pkg_target)dist: $(STAMP_CONFIGURED)
+  $(_pkg_target)distcheck: $(STAMP_CONFIGURED)
+
+  ifneq ($(CONFIG_AUTOREMOVE),)
+    compile:
+		-touch -r $(PKG_BUILD_DIR)/.built $(PKG_BUILD_DIR)/.autoremove 2>/dev/null >/dev/null
+		$(FIND) $(PKG_BUILD_DIR) -mindepth 1 -maxdepth 1 -not '(' -type f -and -name '.*' -and -size 0 ')' -and -not -name '.pkgdir' | \
+			$(XARGS) rm -rf
+  endif
+endef
+
+define Build/DefaultTargets
+  $(if $(USE_SOURCE_DIR)$(USE_GIT_TREE)$(USE_GIT_SRC_CHECKOUT),,$(if $(strip $(PKG_SOURCE_URL)),$(call Download,default)))
+  $(if $(DUMP),,$(Build/CoreTargets))
 
   define Build/DefaultTargets
   endef
-
-  prepare: $(STAMP_PREPARED)
-  configure: $(STAMP_CONFIGURED)
-  dist: $(STAMP_CONFIGURED)
-  distcheck: $(STAMP_CONFIGURED)
 endef
 
-define Build/IncludeOverlay
-  $(eval -include $(wildcard $(TOPDIR)/overlay/*/$(PKG_NAME).mk))
-  define Build/IncludeOverlay
-  endef
+define Build/qsdk-package
+  $(eval -include $(wildcard $(call FindPackage,$(basename $(notdir $(CURDIR))))/$(PKG_NAME).mk))
 endef
 
 define BuildPackage
-  $(Build/IncludeOverlay)
+  $(Build/qsdk-package)
   $(eval $(Package/Default))
   $(eval $(Package/$(1)))
 
@@ -266,7 +303,7 @@ endef
 endif
 
   BUILD_PACKAGES += $(1)
-  $(STAMP_PREPARED): $$(if $(QUILT)$(DUMP),,$(call find_library_dependencies,$(DEPENDS)))
+  $(STAMP_PREPARED): $$(if $(QUILT)$(DUMP),,$(call find_library_dependencies,$(1)))
 
   $(foreach FIELD, TITLE CATEGORY SECTION VERSION,
     ifeq ($($(FIELD)),)
@@ -275,14 +312,14 @@ endif
   )
 
   $(if $(DUMP), \
-    $(Dumpinfo/Package), \
+    $(if $(CHECK),,$(Dumpinfo/Package)), \
     $(foreach target, \
       $(if $(Package/$(1)/targets),$(Package/$(1)/targets), \
         $(if $(PKG_TARGETS),$(PKG_TARGETS), ipkg-prebuilt) \
       ), $(BuildTarget/$(target)) \
     ) \
   )
-  $(if $(PKG_HOST_ONLY)$(DUMP),,$(call Build/DefaultTargets,$(1)))
+  $(if $(PKG_HOST_ONLY),,$(call Build/DefaultTargets,$(1)))
 endef
 
 define pkg_install_files
@@ -305,25 +342,26 @@ Build/DistCheck=$(call Build/DistCheck/Default,)
 .PHONY: prepare-package-install
 prepare-package-install:
 	@mkdir -p $(PKG_INFO_DIR)
-	@touch $(PKG_INSTALL_STAMP).clean
-	@echo "$(filter-out essential,$(PKG_FLAGS))" > $(PKG_INSTALL_STAMP).flags
+	@rm -f $(PKG_INSTALL_STAMP)
+	@echo "$(filter-out essential nonshared,$(PKG_FLAGS))" > $(PKG_INSTALL_STAMP).flags
 
 $(PACKAGE_DIR):
 	mkdir -p $@
 
-dumpinfo:
-download:
-prepare:
-configure:
-compile: prepare-package-install
+compile:
+.install: .compile
 install: compile
 
-clean: FORCE
+force-clean-build: FORCE
+	rm -rf $(PKG_BUILD_DIR)
+
+clean-build: $(if $(wildcard $(PKG_BUILD_DIR)/.autoremove),force-clean-build)
+
+clean: force-clean-build
 	$(CleanStaging)
 	$(call Build/UninstallDev,$(STAGING_DIR),$(STAGING_DIR_HOST))
 	$(Build/Clean)
 	rm -f $(STAGING_DIR)/packages/$(STAGING_FILES_LIST) $(STAGING_DIR_HOST)/packages/$(STAGING_FILES_LIST)
-	rm -rf $(PKG_BUILD_DIR)
 
 dist:
 	$(Build/Dist)

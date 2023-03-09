@@ -7,8 +7,6 @@
 
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/prereq.mk
-include $(INCLUDE_DIR)/host.mk
-include $(INCLUDE_DIR)/host-build.mk
 
 SHELL:=sh
 PKG_NAME:=Build dependency
@@ -24,56 +22,67 @@ $(eval $(call TestHostCommand,case-sensitive-fs, \
 	rm -f $(TMP_DIR)/test.*; touch $(TMP_DIR)/test.fs; \
 		test ! -f $(TMP_DIR)/test.FS))
 
+$(eval $(call TestHostCommand,proper-umask, \
+	Please build with umask 022 - other values produce broken packages, \
+	umask | grep -xE 0?0[012][012]))
+
+ifndef IB
 $(eval $(call SetupHostCommand,gcc, \
-	Please install the GNU C Compiler (gcc), \
-	$(CC) --version | grep gcc, \
-	gcc --version | grep gcc, \
-	gcc49 --version | grep gcc, \
-	gcc48 --version | grep gcc, \
-	gcc47 --version | grep gcc, \
-	gcc46 --version | grep gcc, \
-	gcc --version | grep Apple.LLVM ))
+	Please install the GNU C Compiler (gcc) 4.8 or later, \
+	$(CC) -dumpversion | grep -E '^(4\.[8-9]|[5-9]\.?|1[0-9]\.?)', \
+	gcc -dumpversion | grep -E '^(4\.[8-9]|[5-9]\.?|1[0-9]\.?)', \
+	gcc --version | grep -E 'Apple.(LLVM|clang)' ))
 
 $(eval $(call TestHostCommand,working-gcc, \
-	Please reinstall the GNU C Compiler - it appears to be broken, \
+	\nPlease reinstall the GNU C Compiler (4.8 or later) - \
+	it appears to be broken, \
 	echo 'int main(int argc, char **argv) { return 0; }' | \
 		gcc -x c -o $(TMP_DIR)/a.out -))
 
 $(eval $(call SetupHostCommand,g++, \
-	Please install the GNU C++ Compiler (g++), \
-	$(CXX) --version | grep g++, \
-	g++ --version | grep g++, \
-	g++49 --version | grep g++, \
-	g++48 --version | grep g++, \
-	g++47 --version | grep g++, \
-	g++46 --version | grep g++, \
-	g++ --version | grep Apple.LLVM ))
+	Please install the GNU C++ Compiler (g++) 4.8 or later, \
+	$(CXX) -dumpversion | grep -E '^(4\.[8-9]|[5-9]\.?|1[0-9]\.?)', \
+	g++ -dumpversion | grep -E '^(4\.[8-9]|[5-9]\.?|1[0-9]\.?)', \
+	g++ --version | grep -E 'Apple.(LLVM|clang)' ))
 
 $(eval $(call TestHostCommand,working-g++, \
-	Please reinstall the GNU C++ Compiler - it appears to be broken, \
+	\nPlease reinstall the GNU C++ Compiler (4.8 or later) - \
+	it appears to be broken, \
 	echo 'int main(int argc, char **argv) { return 0; }' | \
 		g++ -x c++ -o $(TMP_DIR)/a.out - -lstdc++ && \
 		$(TMP_DIR)/a.out))
-
-$(eval $(call TestHostCommand,ocamlc, \
-	Please install the Objective Caml compiler (ocaml-nox) v3.12 or later, \
-	ocamlc -v | grep -E 'version (3\.1[2-9]\.[0-9]|3\.[2-9][0-9]|[4-9]\.)'))
 
 $(eval $(call TestHostCommand,ncurses, \
 	Please install ncurses. (Missing libncurses.so or ncurses.h), \
 	echo 'int main(int argc, char **argv) { initscr(); return 0; }' | \
 		gcc -include ncurses.h -x c -o $(TMP_DIR)/a.out - -lncurses))
+endif # IB
 
-$(eval $(call TestHostCommand,zlib, \
-	Please install zlib. (Missing libz.so or zlib.h), \
-	echo 'int main(int argc, char **argv) { gzdopen(0, "rb"); return 0; }' | \
-		gcc -include zlib.h -x c -o $(TMP_DIR)/a.out - -lz))
+ifeq ($(HOST_OS),Linux)
+  zlib_link_flags := -Wl,-Bstatic -lz -Wl,-Bdynamic
+else
+  zlib_link_flags := -lz
+endif
 
-$(eval $(call TestHostCommand,libssl, \
-	Please install the openssl library (with development headers), \
-	echo 'int main(int argc, char **argv) { SSL_library_init(); return 0; }' | \
-		gcc $(HOST_CFLAGS) -include openssl/ssl.h -x c -o $(TMP_DIR)/a.out - -lcrypto -lssl $(HOST_LDFLAGS)))
+$(eval $(call TestHostCommand,perl-data-dumper, \
+	Please install the Perl Data::Dumper module, \
+	perl -MData::Dumper -e 1))
 
+$(eval $(call TestHostCommand,perl-findbin, \
+	Please install the Perl FindBin module, \
+	perl -MFindBin -e 1))
+
+$(eval $(call TestHostCommand,perl-file-copy, \
+	Please install the Perl File::Copy module, \
+	perl -MFile::Copy -e 1))
+
+$(eval $(call TestHostCommand,perl-file-compare, \
+	Please install the Perl File::Compare module, \
+	perl -MFile::Compare -e 1))
+
+$(eval $(call TestHostCommand,perl-thread-queue, \
+	Please install the Perl Thread::Queue module, \
+	perl -MThread::Queue -e 1))
 
 $(eval $(call SetupHostCommand,tar,Please install GNU 'tar', \
 	gtar --version 2>&1 | grep GNU, \
@@ -96,8 +105,8 @@ $(eval $(call SetupHostCommand,diff,Please install diffutils, \
 	diff --version 2>&1 | grep diff))
 
 $(eval $(call SetupHostCommand,cp,Please install GNU fileutils, \
-	gcp --help, \
-	cp --help))
+	gcp --help 2>&1 | grep 'Copy SOURCE', \
+	cp --help 2>&1 | grep 'Copy SOURCE'))
 
 $(eval $(call SetupHostCommand,seq,, \
 	gseq --version, \
@@ -118,14 +127,9 @@ $(eval $(call SetupHostCommand,getopt, \
 	getopt -o t --long test -- --test | grep '^ *--test *--'))
 
 $(eval $(call SetupHostCommand,stat,Cannot find a file stat utility, \
-	gnustat -c%s $(TMP_DIR)/.host.mk, \
-	gstat -c%s $(TMP_DIR)/.host.mk, \
-	stat -c%s $(TMP_DIR)/.host.mk))
-
-$(eval $(call SetupHostCommand,md5sum,, \
-	gmd5sum /dev/null | grep d41d8cd98f00b204e9800998ecf8427e, \
-	md5sum /dev/null | grep d41d8cd98f00b204e9800998ecf8427e, \
-	$(SCRIPT_DIR)/md5sum /dev/null | grep d41d8cd98f00b204e9800998ecf8427e))
+	gnustat -c%s $(TOPDIR)/Makefile, \
+	gstat -c%s $(TOPDIR)/Makefile, \
+	stat -c%s $(TOPDIR)/Makefile))
 
 $(eval $(call SetupHostCommand,unzip,Please install 'unzip', \
 	unzip 2>&1 | grep zipfile, \
@@ -140,24 +144,24 @@ $(eval $(call SetupHostCommand,wget,Please install GNU 'wget', \
 $(eval $(call SetupHostCommand,perl,Please install Perl 5.x, \
 	perl --version | grep "perl.*v5"))
 
+$(eval $(call CleanupPython3))
+
 $(eval $(call SetupHostCommand,python,Please install Python 2.x, \
-	python2.7 -V 2>&1 | grep Python, \
-	python2 -V 2>&1 | grep Python, \
-	python -V 2>&1 | grep Python))
+	python2.7 -V 2>&1 | grep 'Python 2.7', \
+	python2 -V 2>&1 | grep 'Python 2', \
+	python -V 2>&1 | grep 'Python 2'))
 
-$(eval $(call SetupHostCommand,svn,Please install the Subversion client, \
-	svn --version | grep Subversion))
-
-$(eval $(call SetupHostCommand,git,Please install Git (git-core) >= 1.6.5, \
-	git clone 2>&1 | grep -- --recursive, \
-	git clone 2>&1 | grep -- --recurse-submodules))
+$(eval $(call SetupHostCommand,git,Please install Git (git-core) >= 1.7.12.2, \
+	git --exec-path | xargs -I % -- grep -q -- --recursive %/git-submodule))
 
 $(eval $(call SetupHostCommand,file,Please install the 'file' package, \
 	file --version 2>&1 | grep file))
 
-$(eval $(call SetupHostCommand,openssl,Please install the 'openssl' utility, \
-	openssl version | grep OpenSSL))
+$(STAGING_DIR_HOST)/bin/mkhash: $(SCRIPT_DIR)/mkhash.c
+	mkdir -p $(dir $@)
+	$(CC) -O2 -I$(TOPDIR)/tools/include -o $@ $<
 
+prereq: $(STAGING_DIR_HOST)/bin/mkhash
 
 # Install ldconfig stub
 $(eval $(call TestHostCommand,ldconfig-stub,Failed to install stub, \

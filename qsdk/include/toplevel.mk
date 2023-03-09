@@ -6,7 +6,6 @@
 # See /LICENSE for more information.
 #
 
-RELEASE:=Chaos Calmer
 PREP_MK= OPENWRT_BUILD= QUIET=0
 
 export IS_TTY=$(shell tty -s && echo 1 || echo 0)
@@ -17,17 +16,18 @@ ifeq ($(SDK),1)
   include $(TOPDIR)/include/version.mk
 else
   REVISION:=$(shell $(TOPDIR)/scripts/getver.sh)
+  SOURCE_DATE_EPOCH:=$(shell $(TOPDIR)/scripts/get_source_date_epoch.sh)
 endif
 
 HOSTCC ?= $(CC)
-OPENWRTVERSION:=$(RELEASE)$(if $(REVISION), ($(REVISION)))
-export RELEASE
 export REVISION
-export OPENWRTVERSION
-export LD_LIBRARY_PATH:=$(subst ::,:,$(if $(LD_LIBRARY_PATH),$(LD_LIBRARY_PATH):)$(TOPDIR)/staging_dir/host/lib)
-export DYLD_LIBRARY_PATH:=$(subst ::,:,$(if $(DYLD_LIBRARY_PATH),$(DYLD_LIBRARY_PATH):)$(TOPDIR)/staging_dir/host/lib)
+export SOURCE_DATE_EPOCH
 export GIT_CONFIG_PARAMETERS='core.autocrlf=false'
+export GIT_ASKPASS:=/bin/true
 export MAKE_JOBSERVER=$(filter --jobserver%,$(MAKEFLAGS))
+export GNU_HOST_NAME:=$(shell $(TOPDIR)/scripts/config.guess)
+export HOST_OS:=$(shell uname)
+export HOST_ARCH:=$(shell uname -m)
 
 # prevent perforce from messing with the patch utility
 unexport P4PORT P4USER P4CONFIG P4CLIENT
@@ -42,6 +42,14 @@ unexport LPATH
 
 # make sure that a predefined CFLAGS variable does not disturb packages
 export CFLAGS=
+export LDFLAGS=
+
+empty:=
+space:= $(empty) $(empty)
+path:=$(subst :,$(space),$(PATH))
+path:=$(filter-out .%,$(path))
+path:=$(subst $(space),:,$(path))
+export PATH:=$(path)
 
 unexport TAR_OPTIONS
 
@@ -63,20 +71,26 @@ SUBMAKE:=umask 022; $(SUBMAKE)
 
 ULIMIT_FIX=_limit=`ulimit -n`; [ "$$_limit" = "unlimited" -o "$$_limit" -ge 1024 ] || ulimit -n 1024;
 
-prepare-mk: FORCE ;
+prepare-mk: staging_dir/host/.prereq-build FORCE ;
+
+ifdef SDK
+  IGNORE_PACKAGES = linux
+endif
+
+_ignore = $(foreach p,$(IGNORE_PACKAGES),--ignore $(p))
 
 prepare-tmpinfo: FORCE
 	@+$(MAKE) -r -s staging_dir/host/.prereq-build $(PREP_MK)
 	mkdir -p tmp/info
-	$(_SINGLE)$(NO_TRACE_MAKE) -j1 -r -s -f include/scan.mk SCAN_TARGET="packageinfo" SCAN_DIR="package" SCAN_NAME="package" SCAN_DEPS="$(TOPDIR)/include/package*.mk $(TOPDIR)/overlay/*/*.mk" SCAN_DEPTH=5 SCAN_EXTRA=""
-	$(_SINGLE)$(NO_TRACE_MAKE) -j1 -r -s -f include/scan.mk SCAN_TARGET="targetinfo" SCAN_DIR="target/linux" SCAN_NAME="target" SCAN_DEPS="profiles/*.mk $(TOPDIR)/include/kernel*.mk $(TOPDIR)/include/target.mk" SCAN_DEPTH=2 SCAN_EXTRA="" SCAN_MAKEOPTS="TARGET_BUILD=1"
+	$(_SINGLE)$(NO_TRACE_MAKE) -j1 -r -s -f include/scan.mk SCAN_TARGET="packageinfo" SCAN_DIR="package" SCAN_NAME="package" SCAN_DEPTH=5 SCAN_EXTRA=""
+	$(_SINGLE)$(NO_TRACE_MAKE) -j1 -r -s -f include/scan.mk SCAN_TARGET="targetinfo" SCAN_DIR="target/linux" SCAN_NAME="target" SCAN_DEPTH=2 SCAN_EXTRA="" SCAN_MAKEOPTS="TARGET_BUILD=1"
 	for type in package target; do \
 		f=tmp/.$${type}info; t=tmp/.config-$${type}.in; \
-		[ "$$t" -nt "$$f" ] || ./scripts/metadata.pl $${type}_config "$$f" > "$$t" || { rm -f "$$t"; echo "Failed to build $$t"; false; break; }; \
+		[ "$$t" -nt "$$f" ] || ./scripts/$${type}-metadata.pl $(_ignore) config "$$f" > "$$t" || { rm -f "$$t"; echo "Failed to build $$t"; false; break; }; \
 	done
-	[ tmp/.config-feeds.in -nt tmp/.packagefeeds ] || ./scripts/feeds feed_config > tmp/.config-feeds.in
-	./scripts/metadata.pl package_mk tmp/.packageinfo > tmp/.packagedeps || { rm -f tmp/.packagedeps; false; }
-	./scripts/metadata.pl package_feeds tmp/.packageinfo > tmp/.packagefeeds || { rm -f tmp/.packagefeeds; false; }
+	[ tmp/.config-feeds.in -nt tmp/.packageauxvars ] || ./scripts/feeds feed_config > tmp/.config-feeds.in
+	./scripts/package-metadata.pl mk tmp/.packageinfo > tmp/.packagedeps || { rm -f tmp/.packagedeps; false; }
+	./scripts/package-metadata.pl pkgaux tmp/.packageinfo > tmp/.packageauxvars || { rm -f tmp/.packageauxvars; false; }
 	touch $(TOPDIR)/tmp/.build
 
 .config: ./scripts/config/conf $(if $(CONFIG_HAVE_DOT_CONFIG),,prepare-tmpinfo)
@@ -85,24 +99,58 @@ prepare-tmpinfo: FORCE
 		$(_SINGLE)$(NO_TRACE_MAKE) menuconfig $(PREP_MK); \
 	fi
 
+ifneq ($(DISTRO_PKG_CONFIG),)
+scripts/config/mconf: export PATH:=$(dir $(DISTRO_PKG_CONFIG)):$(PATH)
+endif
 scripts/config/mconf:
 	@$(_SINGLE)$(SUBMAKE) -s -C scripts/config all CC="$(HOSTCC_WRAPPER)"
 
 $(eval $(call rdep,scripts/config,scripts/config/mconf))
 
+scripts/config/qconf:
+	@$(_SINGLE)$(SUBMAKE) -s -C scripts/config qconf \
+		CC="$(HOSTCC_WRAPPER)" \
+		DISTRO-PKG-CONFIG="$(DISTRO_PKG_CONFIG)"
+
 scripts/config/conf:
 	@$(_SINGLE)$(SUBMAKE) -s -C scripts/config conf CC="$(HOSTCC_WRAPPER)"
 
 config: scripts/config/conf prepare-tmpinfo FORCE
-	$< Config.in
+	[ -L .config ] && export KCONFIG_OVERWRITECONFIG=1; \
+		$< Config.in
 
 config-clean: FORCE
 	$(_SINGLE)$(NO_TRACE_MAKE) -C scripts/config clean
 
+define check_config
+	config_target=`grep -oP "CONFIG_TARGET_BOARD[=][\"]\K[a-zA-Z0-9_]*(?=\")" .config`; \
+	printf "$(_G)# Selected target:\t$$config_target$(_N)\n"; \
+	config_subtarget=`grep -oP "CONFIG_TARGET_SUBTARGET[=][\"]\K[a-zA-Z0-9_]*(?=\")" .config`; \
+	printf "$(_G)# Selected subtarget:\t$$config_subtarget$(_N)\n"; \
+	config_profile=`grep -oP "^CONFIG_TARGET_"$$config_target"_"$$config_subtarget"_\K[a-zA-z0-9_]*" .config`; \
+	if grep -q -oP "^CONFIG_KERNEL_KASAN=y" .config; then \
+		config_ext="_Kasan"; \
+	elif grep -q -oP "^CONFIG_DEBUG=y" .config; then \
+		config_ext="_Debug"; \
+	else \
+		config_ext=""; \
+	fi ;\
+	printf "$(_G)# Selected profile:\t$$config_profile$$config_ext$(_N)\n"; \
+	case $$config_target in \
+		*"ipq"* | *"ar71xx"*) \
+			;; \
+		*) printf "$(_R)# WARNING: Selected target is not IPQ chipset !!!$(_N)\n"; \
+			;; \
+	esac
+	printf "#\n"
+endef
+
 defconfig: scripts/config/conf prepare-tmpinfo FORCE
 	touch .config
-	@if [ -e $(HOME)/.openwrt/defconfig ]; then cp $(HOME)/.openwrt/defconfig .config; fi
-	$< --defconfig=.config Config.in
+	@if [ ! -s .config -a -e $(HOME)/.openwrt/defconfig ]; then cp $(HOME)/.openwrt/defconfig .config; fi
+	[ -L .config ] && export KCONFIG_OVERWRITECONFIG=1; \
+		$< --defconfig=.config Config.in
+	$(check_config)
 
 confdefault-y=allyes
 confdefault-m=allmod
@@ -110,9 +158,17 @@ confdefault-n=allno
 confdefault:=$(confdefault-$(CONFDEFAULT))
 
 oldconfig: scripts/config/conf prepare-tmpinfo FORCE
-	$< --$(if $(confdefault),$(confdefault),old)config Config.in
+	[ -L .config ] && export KCONFIG_OVERWRITECONFIG=1; \
+		$< --$(if $(confdefault),$(confdefault),old)config Config.in
 
 menuconfig: scripts/config/mconf prepare-tmpinfo FORCE
+	if [ \! -e .config -a -e $(HOME)/.openwrt/defconfig ]; then \
+		cp $(HOME)/.openwrt/defconfig .config; \
+	fi
+	[ -L .config ] && export KCONFIG_OVERWRITECONFIG=1; \
+		$< Config.in
+
+xconfig: scripts/config/qconf prepare-tmpinfo FORCE
 	if [ \! -e .config -a -e $(HOME)/.openwrt/defconfig ]; then \
 		cp $(HOME)/.openwrt/defconfig .config; \
 	fi
@@ -120,14 +176,12 @@ menuconfig: scripts/config/mconf prepare-tmpinfo FORCE
 
 prepare_kernel_conf: .config FORCE
 
-ifneq ($(wildcard $(LINUX_DIR)),)
-  clean_kernel: FORCE
-	$(_SINGLE)$(NO_TRACE_MAKE) target/linux/clean;
-endif
+clean_kernel: FORCE
+	$(_SINGLE)$(NO_TRACE_MAKE) target/linux/clean
 
 ifeq ($(wildcard staging_dir/host/bin/quilt),)
   prepare_kernel_conf:
-	@+$(SUBMAKE) -r tools/quilt/install
+	@+$(SUBMAKE) -r tools/quilt/compile
 else
   prepare_kernel_conf: ;
 endif
@@ -135,6 +189,10 @@ endif
 kernel_oldconfig: prepare_kernel_conf
 	$(_SINGLE)$(NO_TRACE_MAKE) -C target/linux oldconfig
 
+ifneq ($(DISTRO_PKG_CONFIG),)
+kernel_menuconfig: export PATH:=$(dir $(DISTRO_PKG_CONFIG)):$(PATH)
+kernel_nconfig: export PATH:=$(dir $(DISTRO_PKG_CONFIG)):$(PATH)
+endif
 kernel_menuconfig: prepare_kernel_conf
 	$(_SINGLE)$(NO_TRACE_MAKE) -C target/linux menuconfig
 
@@ -143,7 +201,6 @@ kernel_nconfig: prepare_kernel_conf
 
 staging_dir/host/.prereq-build: include/prereq-build.mk
 	mkdir -p tmp
-	rm -f tmp/.host.mk
 	@$(_SINGLE)$(NO_TRACE_MAKE) -j1 -r -s -f $(TOPDIR)/include/prereq-build.mk prereq 2>/dev/null || { \
 		echo "Prerequisite check failed. Use FORCE=1 to override."; \
 		false; \
@@ -159,17 +216,26 @@ staging_dir/host/.prereq-build: include/prereq-build.mk
 printdb: FORCE
 	@$(_SINGLE)$(NO_TRACE_MAKE) -p $@ V=99 DUMP_TARGET_DB=1 2>&1
 
-download: .config FORCE
-	@+$(SUBMAKE) tools/download
-	@+$(SUBMAKE) toolchain/download
-	@+$(SUBMAKE) package/download
-	@+$(SUBMAKE) target/download
+ifndef SDK
+  DOWNLOAD_DIRS = tools/download toolchain/download package/download target/download
+else
+  DOWNLOAD_DIRS = package/download
+endif
+
+download: .config FORCE $(if $(wildcard $(TOPDIR)/staging_dir/host/bin/flock),,tools/flock/compile)
+	@+$(foreach dir,$(DOWNLOAD_DIRS),$(SUBMAKE) $(dir);)
 
 clean dirclean: .config
 	@+$(SUBMAKE) -r $@
 
 prereq:: prepare-tmpinfo .config
 	@+$(NO_TRACE_MAKE) -r -s $@
+
+check: .config FORCE
+	@+$(NO_TRACE_MAKE) -r -s $@ QUIET= V=s
+
+val.%: FORCE
+	@+$(NO_TRACE_MAKE) -r -s $@ QUIET= V=s
 
 WARN_PARALLEL_ERROR = $(if $(BUILD_LOG),,$(and $(filter -j,$(MAKEFLAGS)),$(findstring s,$(OPENWRT_VERBOSE))))
 
@@ -215,14 +281,8 @@ package/symlinks-clean:
 help:
 	cat README
 
-docs docs/compile: FORCE
-	@$(_SINGLE)$(SUBMAKE) -C docs compile
-
-docs/clean: FORCE
-	@$(_SINGLE)$(SUBMAKE) -C docs clean
-
 distclean: clean_kernel
-	rm -rf tmp build_dir staging_dir dl .config* feeds package/feeds package/openwrt-packages bin
+	rm -rf bin build_dir .config* dl feeds key-build* logs package/feeds package/openwrt-packages staging_dir tmp
 	@$(_SINGLE)$(SUBMAKE) -C scripts/config clean
 
 ifeq ($(findstring v,$(DEBUG)),)

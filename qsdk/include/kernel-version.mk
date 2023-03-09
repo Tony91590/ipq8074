@@ -2,14 +2,34 @@
 
 LINUX_RELEASE?=1
 
-LINUX_VERSION-3.18 = .84
-LINUX_VERSION-4.4 = .60
+ifdef CONFIG_TESTING_KERNEL
+  KERNEL_PATCHVER:=$(KERNEL_TESTING_PATCHVER)
+endif
 
-LINUX_KERNEL_MD5SUM-3.18.84 = e79685de43fcf3c4ada7d4fc5230a518
-LINUX_KERNEL_MD5SUM-4.4.60 = 56ee8066aadcc1841fead5dbf920d422
+LINUX_VERSION-5.4 = .86
 
+LINUX_KERNEL_HASH-5.4.86 = eb36b5fc6ef7b953acba0a3e62d872e0330c4d34b38d58f5714493a4fe3b0e8b
+
+LINUX_VERSION-4.14 = .248
+
+LINUX_KERNEL_HASH-4.14.248 = c993eecf5cc41acbd874fde56eecb87ac021df477defe3d8bd1d811548d3b654
+
+remove_uri_prefix=$(subst git://,,$(subst http://,,$(subst https://,,$(1))))
+sanitize_uri=$(call qstrip,$(subst @,_,$(subst :,_,$(subst .,_,$(subst -,_,$(subst /,_,$(1)))))))
+
+ifneq ($(call qstrip,$(CONFIG_KERNEL_GIT_CLONE_URI)),)
+  LINUX_VERSION:=$(call sanitize_uri,$(call remove_uri_prefix,$(CONFIG_KERNEL_GIT_CLONE_URI)))
+  ifeq ($(call qstrip,$(CONFIG_KERNEL_GIT_REF)),)
+    CONFIG_KERNEL_GIT_REF:=HEAD
+  endif
+  LINUX_VERSION:=$(LINUX_VERSION)-$(call sanitize_uri,$(CONFIG_KERNEL_GIT_REF))
+else
 ifdef KERNEL_PATCHVER
   LINUX_VERSION:=$(KERNEL_PATCHVER)$(strip $(LINUX_VERSION-$(KERNEL_PATCHVER)))
+endif
+ifdef KERNEL_TESTING_PATCHVER
+  LINUX_TESTING_VERSION:=$(KERNEL_TESTING_PATCHVER)$(strip $(LINUX_VERSION-$(KERNEL_TESTING_PATCHVER)))
+endif
 endif
 
 split_version=$(subst ., ,$(1))
@@ -19,5 +39,5 @@ KERNEL=$(call merge_version,$(wordlist 1,2,$(call split_version,$(KERNEL_BASE)))
 KERNEL_PATCHVER ?= $(KERNEL)
 
 # disable the md5sum check for unknown kernel versions
-LINUX_KERNEL_MD5SUM:=$(LINUX_KERNEL_MD5SUM-$(strip $(LINUX_VERSION)))
-LINUX_KERNEL_MD5SUM?=x
+LINUX_KERNEL_HASH:=$(LINUX_KERNEL_HASH-$(strip $(LINUX_VERSION)))
+LINUX_KERNEL_HASH?=x
