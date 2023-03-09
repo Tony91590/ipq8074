@@ -173,7 +173,8 @@ endef
 
 define Image/Build
 	$(call Image/Build/$(1),$(1))
-	dd if=$(KDIR)/root$(2).$(1) of=$(BIN_DIR)/$(IMG_PREFIX)$(2)-$(1)-root$(3).img bs=2k conv=sync
+	$$(if $(CONFIG_PACKAGE_opkg), ,$$(call sizecheck, $(IPQ50XX_16M_ROOTFS_SIZE), $(KDIR)/root$(2).$(1)))
+	dd if=$(KDIR)/root$(2).$(1) of=$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).img bs=2k conv=sync
 endef
 
 $(eval $(call BuildImage))
