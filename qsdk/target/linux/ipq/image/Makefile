@@ -236,8 +236,8 @@ define Image/UbiImage
 	$(eval UBI_OPTS:="-m 2048 -p 128KiB")
 	$(foreach image,$(UBI_IMAGES), \
 	$(call Image/UbiPrepare,$(image),squashfs,"ubi_rootfs","rootfs_data"))
-	$(if $(wildcard $(DTS_DIR)/qcom-ipq807x-hwk01.dtb), \
-		$(call Image/UbiPrepare,qcom-ipq807x-hwk01,squashfs,"ubi_rootfs","rootfs_data"))
+	$(if $(wildcard $(DTS_DIR)/qcom-ipq807x-ac04.dtb), \
+		$(call Image/UbiPrepare,qcom-ipq807x-ac04,squashfs,"ubi_rootfs","rootfs_data"))
 endef
 
 ifeq ($(CONFIG_LOWMEM_FLASH),)
