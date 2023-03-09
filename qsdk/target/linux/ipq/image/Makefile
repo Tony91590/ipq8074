@@ -232,6 +232,14 @@ define Image/Build/ubifs
 	$(call Image/mkfs/ubifs_fit,-$(SUBTARGET))
 endef
 
+define Image/UbiImage
+	$(eval UBI_OPTS:="-m 2048 -p 128KiB")
+	$(foreach image,$(UBI_IMAGES), \
+	$(call Image/UbiPrepare,$(image),squashfs,"ubi_rootfs","rootfs_data"))
+	$(if $(wildcard $(DTS_DIR)/qcom-ipq807x-hwk01.dtb), \
+		$(call Image/UbiPrepare,qcom-ipq807x-hwk01,squashfs,"ubi_rootfs","rootfs_data"))
+endef
+
 ifeq ($(CONFIG_LOWMEM_FLASH),)
 define Image/Build/squashfs
 	$(call prepare_generic_squashfs,$(KDIR)/root.squashfs)
