@@ -2,10 +2,12 @@
 #
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/image.mk
+include $(INCLUDE_DIR)/image-commands.mk
 
 UBIFS_OPTS = -m 2048 -e 124KiB -c 4096 -U -F
 UBI_OPTS = -m 2048 -p 128KiB
 
+SUPPORTED_DEVICES = ap-hk14
 
 ifeq ($(strip $(call CompareKernelPatchVer,$(KERNEL_PATCHVER),eq,3.18)),1)
 IPQ806X_KERNEL_LOADADDR = 0x42008000
@@ -205,21 +207,15 @@ define Image/BuildKernel/Initramfs
 endef
 
 define Image/ubifs_m4096_p512KiB
-
-  ifeq ($(CONFIG_TARGET_ipq_ipq806x),)
 	$(eval UBI_OPTS:="-m 4096 -p 512KiB")
 	$(call Image/mkfs/ubifs/generate,$(1))
 	$(call Image/Build,ubi,$(1),-m4096-p512KiB)
-  endif
 endef
 
 define Image/ubifs_m4096_p256KiB
-
-  ifeq ($(CONFIG_TARGET_ipq_ipq806x),)
 	$(eval UBI_OPTS:="-m 4096 -p 256KiB")
 	$(call Image/mkfs/ubifs/generate,$(1))
 	$(call Image/Build,ubi,$(1),-m4096-p256KiB)
-  endif
 endef
 
 define Image/ubifs_128MB
@@ -232,14 +228,6 @@ define Image/Build/ubifs
 	$(call Image/mkfs/ubifs_fit,-$(SUBTARGET))
 endef
 
-define Image/UbiImage
-	$(eval UBI_OPTS:="-m 2048 -p 128KiB")
-	$(foreach image,$(UBI_IMAGES), \
-	$(call Image/UbiPrepare,$(image),squashfs,"ubi_rootfs","rootfs_data"))
-	$(if $(wildcard $(DTS_DIR)/qcom-ipq807x-ac04.dtb), \
-		$(call Image/UbiPrepare,qcom-ipq807x-ac04,squashfs,"ubi_rootfs","rootfs_data"))
-endef
-
 ifeq ($(CONFIG_LOWMEM_FLASH),)
 define Image/Build/squashfs
 	$(call prepare_generic_squashfs,$(KDIR)/root.squashfs)
@@ -248,8 +236,19 @@ endif
 
 define Image/Build
 	$(call Image/Build/$(1),$(1))
-	$$(if $(CONFIG_PACKAGE_opkg), ,$$(call sizecheck, $(IPQ50XX_16M_ROOTFS_SIZE), $(KDIR)/root$(2).$(1)))
 	dd if=$(KDIR)/root$(2).$(1) of=$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).img bs=2k conv=sync
+	cp $(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).img $(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin
+	$(if $(SUPPORTED_DEVICES),-echo $(call metadata_json) | fwtool -I - $(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin)
+	[ ! -s "$(BUILD_KEY)" -o ! -s "$(BUILD_KEY).ucert" -o ! -s "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin"  ] || { \
+		cp "$(BUILD_KEY).ucert" "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin.ucert" ;\
+		$(STAGING_DIR_HOST)/bin/usign -S -m "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin" -s "$(BUILD_KEY)" -x "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin.sig" ;\
+		$(STAGING_DIR_HOST)/bin/ucert -A -c "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin.ucert" -x "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin.sig" ;\
+		$(STAGING_DIR_HOST)/bin/fwtool -S "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin.ucert" "$(BIN_DIR)/$(IMG_PREFIX)-$(1)-root$(3).bin" ;\
+	}
+endef
+
+define Image/Build/Profile/opensource
+	./mkopimage.sh $(TARGET_DIR) $(BIN_DIR) $(IMG_PREFIX)
 endef
 
 $(eval $(call BuildImage))
