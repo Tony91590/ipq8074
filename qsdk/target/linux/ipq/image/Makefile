@@ -225,7 +225,7 @@ endef
 define Image/ubifs_128MB
 	$(eval UBI_OPTS:="-m 2048 -p 128KiB")
 	$(call Image/mkfs/ubifs/generate,$(1))
-	$(call Image/Build,ubi,$(1))
+	$(call Image/Build,ubi,$(1),-m2048-p128KiB)
 endef
 
 define Image/Build/ubifs
