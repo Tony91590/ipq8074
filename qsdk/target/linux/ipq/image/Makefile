@@ -151,11 +151,11 @@ define Image/BuildKernel/ipq807x
 endef
 
 define Image/BuildKernel/ipq807x_64
-	$(foreach device, $(call FindDeviceTrees, qcom-ipq807x-), \
+	$(foreach device, $(call FindDeviceTrees, qcom-ipq807x-ac04), \
 		$(call Image/BuildKernel/$(1),$(device),$(IPQ807X_64_KERNEL_LOADADDR));)
 
-	$(call Image/BuildKernel/MultiDTBFIT,qcom-ipq807x-hkxx, \
-		$(call FindDeviceTrees, qcom-ipq807x-), $(IPQ807X_64_KERNEL_LOADADDR))
+	$(call Image/BuildKernel/MultiDTBFIT,qcom-ipq807x-ac04, \
+		$(call FindDeviceTrees, qcom-ipq807x-ac04), $(IPQ807X_64_KERNEL_LOADADDR))
 endef
 
 define Image/BuildKernel/ipq60xx
